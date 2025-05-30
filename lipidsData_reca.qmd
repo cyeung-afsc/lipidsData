@@ -1,0 +1,488 @@
+---
+title: "yfs lipids data ABL-RECA"
+date: "2025-05-28"
+date-modified: '`r format(Sys.Date(), "%B %d, %Y")`'
+author: Cynthia Yeung
+execute: 
+  echo: false
+  warning: false
+editor_options: 
+  chunk_output_type: console
+format: html
+---
+
+### Housekeeping log
+
+[Batch #1]{.underline} 2022 yfs trial samples (n = 33) analyzed in ABL for SI and lipids only:\
+4/11/2023\
+Whole fish shipped with ice packs in cooler. No otoliths and stomachs were processed from each fish.\
+12/19/2023\
+Lab results from trial fish received 2024\
+More 2022 fish are being selected to do full set of otoliths, stomachs and biochemistry on each fish.\
+
+[Batch #2]{.underline} 2022 (n = 87) and NW2101 (n = 13) yfs dissected in May-Jul 2024 FEDEX to ABL on Jul 29 2024 5/28/25  Results back on 5/27/25 with bonus Chukchi samples (n = 27) from RECA cruises\
+change lipidsData_2022_trial.qmd (rename to lipidsData_reca.qmd) and lipidsData.Rmd to use yfs_RECA_biodata.xlsx (MASTER), replacing yfs_2022_lipid-isotopes_d13C lipid adjusted.xlsx::BS22YFS condition-isotope, include all currently available RECA data, qmd/rmd scripts with old names saved in Git version.
+
+### Data exploration
+
+```{r}
+#| label: load-packages
+#| include: false
+
+library(tidyverse)
+library(forcats)
+library(xlsx)
+library(flextable)
+library(officer)
+library(viridis)
+library(egg)
+#library(conflicted)
+```
+
+```{r}
+#| label: flextable-defaults
+
+set_flextable_defaults(
+  font.family = "Arial",
+  digits = 2,
+  font.size = 10, 
+  background.color = "white",
+  theme_fun = theme_booktabs,
+  padding = 2
+  )
+```
+
+```{r}
+#| label: ggplot-defaults
+
+theme_opts <- list(theme_bw() + theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(),
+  panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5, linetype = "solid"))) # box around plot
+
+dodge <- position_dodge(width = 0.2)
+
+text_size <- 20
+```
+
+[Subarea:]{.underline}\
+South - Bering Sea south of 58.4$^\circ$N\
+Central - Bering Sea between 58.4$^\circ$N and 60.4$^\circ$N\
+North - Bering Sea north of 60.4$^\circ$N\
+Arctic - Chukchi Sea
+
+```{r}
+#| label: subarea-plot-labels
+
+reglabel <- c("Arctic", "North", "Central", "South")
+names(reglabel) <- c("K", "N", "C", "S")
+```
+
+[Variables:]{.underline}\
+Not sure whether the variables were derived from dry or wet sample mass\
+`year` - collection year (chr)\
+`stn` - EFH station designation (may be different from `stationid`)\
+`stationid` - AFSC bottom-trawl survey designation\
+`haul` - haul number (chr)\
+`date` - collection date\
+`gear` - bottom or beam trawl\
+`len` - fish total length (mm)\
+`wt` - fish total blotted wet weight (g)\
+`reg` - subarea designation\
+`specn` - sample id\
+`d15n` - δ^15^N\
+`d13c` - δ^13^C\
+`d13c.adj` = δ^13^C adjusted for lipid content = if_else(cn.ratio \> 3.5, d13c - 3.32 + 0.99 \* cn.ratio, d13c) [Post 2007](http://dx.doi.org/10.1007/s00442-006-0630-x "Getting to the fat of the matter: models, methods and assumptions for dealing with lipids in stable isotope analyses") Eq.3\
+`c` - %C in sample\
+`n` - %N in sample\
+`cn.ratio` - %C:%N in lipids(??) sample\
+`moist` - % moisture in sample\
+`lipids` - % lipids in sample\
+`sam.type` - sample type: whole fish or muscle tissue plug\
+`sl` - standard length (mm)\
+`bd` - body depth (mm)\
+`ev.wt` - weight minus stomach weight\
+`lip.id` - lipids processing id (source specific)\
+`lip.source` - Copeman, Miller\
+`lip.sam.wwt` - wet weight (wwt) of sample processed for lipids (g) \
+`fa.per.wwt` - total fatty acids per wwt ($\mu$g/mg)\
+`lip.per.wwt` - total lipids per wwt ($\mu$g/mg) <br> <br>
+
+```{r}
+#| label: import-data
+#| eval: false
+
+lip.reca <- xlsx::read.xlsx("~/Data/EFHFF/data/lipids/yfs_RECA_biodata.xlsx", sheetName = "Sheet1", colIndex = NULL, header = TRUE)
+
+names(lip.reca) <- tolower(colnames(lip.reca))
+
+lip.reca <- lip.reca |>
+  mutate(year = as.character(year), time = format(time, "%H:%M")) |>
+  mutate(reg = forcats::fct_recode(reg, "Arctic" = "K", "North" = "N", "Central" = "C", "South" = "S")) |>
+  mutate(reg = forcats::fct_relevel(reg, "Arctic", "North", "Central", "South"))
+
+
+# Corrected NW2101 specn 21079 weight, probably wrong decimal input
+lip.reca <- lip.reca |> mutate(wt = case_when(
+    specn == 21079 ~ wt / 10,
+    TRUE ~ wt
+  ))
+
+save(lip.reca, file="~/R/work/EFHFF/data/lip.reca.Rda")
+```
+
+```{r}
+#| label: load-data
+
+load("~/R/work/EFHFF/data/lip.reca.Rda")
+```
+
+```{r}
+#| label: table-n-subarea
+#| tbl-cap: "Number of samples"
+
+lip.reca %>% 
+  dplyr::count(reg, year) %>%
+  flextable() %>%
+  set_header_labels(reg = "subarea") %>%
+  set_caption(
+    as_paragraph(
+      as_chunk("Number of samples", props = fp_text_default(font.family = "Arial"))
+    )
+  )
+```
+
+<br><br><br><br>
+
+```{r}
+#| label: table-lengthFreq-subarea
+#| tbl-cap: "Frequency"
+
+table(lip.reca$reg, cut(lip.reca$len, breaks = seq(30, 180, 10))) %>% 
+  as.data.frame() %>% 
+  dplyr::rename("subarea" = Var1, "length" = Var2) %>% 
+  group_by(subarea, length) %>%
+  pivot_wider(names_from = length, values_from = Freq) %>%
+  flextable() %>%
+  add_header_lines(top = TRUE, values = "Length (mm)") %>%
+  align_nottext_col(align = "center", header = TRUE) %>%
+  set_caption(
+    as_paragraph(
+      as_chunk("Frequency", props = fp_text_default(font.family = "Arial"))
+    )
+  )
+```
+
+<br><br><br><br>
+
+```{r}
+#| label: plot-lengthFreq-subarea
+#| fig-width: 6
+#| fig-height: 9
+
+# e.g. the bar centered at 60 contains values from 60 (inclusive) up to but not including 70 [60, 70).
+ggplot(lip.reca, aes(x = len)) +
+  geom_histogram(binwidth = 10, color = "black", fill = "skyblue") +
+  facet_wrap(~ reg, ncol = 1, scales = "free_y") +
+  scale_x_continuous(breaks = seq(30, 180, by = 10)) +
+  labs(
+    title = "Length frequency distribution",
+    x = "Length (mm)",
+    y = "Frequency"
+  ) +
+  theme_opts
+```
+
+<br><br><br><br>
+
+```{r}
+#| label: plot-δ13c-v-δ13c.adj
+#| eval: false
+
+tmp <- lip.reca %>% select(wt, d13c, d13c.adj) %>% 
+  pivot_longer(., cols = d13c:d13c.adj, names_to = "d13C", values_to = "ppt", names_transform = list(method = as.factor)) %>%
+  group_by(d13C) 
+
+ggplot(tmp, aes(x = wt, y = ppt, color = factor(d13C), shape = factor(d13C))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = c(bquote(delta^13*C), bquote(delta^13*C~adjusted))) +
+  scale_shape_discrete(labels = c(bquote(delta^13*C), bquote(delta^13*C~adjusted))) +
+  labs(x = "Sample weight (g)", 
+       y = expression(paste("(\u2030)")), 
+       title = bquote(delta^13*C~content)) +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts + 
+  theme(legend.title = element_blank(), 
+        text = element_text(size = text_size),
+        axis.title.y = element_text(angle = 0, vjust = 0.5)
+        )
+
+rm(tmp)
+```
+
+<br><br><br><br>
+
+```{r}
+#| label: plot-length-v-weight
+#| layout-ncol: 1
+#| layout-nrow: 2
+#| fig-width: 9
+#| fig-height: 6
+
+# length v log(weight), len <= 150
+ggplot(lip.reca %>% dplyr::filter(len <= 150), aes(x = len, y = log(wt), color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  scale_x_continuous(breaks = seq(30, 150, 10)) + 
+  labs(x = "Length (mm)", 
+       y = "log Weight (g)",
+       title = "Length-weight relationship") +
+  geom_smooth(method = "gam", formula = y ~ s(x), se = FALSE) +
+  theme_opts +
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+
+
+# length v log(weight), len <= 150, by year
+ggplot(lip.reca %>% dplyr::filter(len <= 150), aes(x = len, y = log(wt), color = factor(year), shape = factor(year))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  scale_x_continuous(breaks = seq(30, 150, 30)) + 
+  facet_wrap(~ reg, nrow = 1) +
+  labs(x = "Length (mm)", 
+       y = "log Weight (g)") +
+  geom_smooth(method = "gam", formula = y ~ s(x), se = FALSE) +
+  theme_opts +
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+```
+
+North slightly better growth starting \~90 mm <br> <br> <br> <br>
+
+### Lipids, moisture content
+
+```{r}
+#| label: plot-lipids-moisture
+#| layout-ncol: 2
+#| layout-nrow: 1
+
+ggplot(lip.reca, aes(x = wt, y = moist, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = "weight (g)", 
+       y = "moisture (%)") +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts +  
+  theme(legend.title = element_blank(), 
+        text = element_text(size = text_size))
+
+ggplot(lip.reca, aes(x = wt, y = lipid, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = "weight (g)", 
+       y = "lipids (%)") +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts +  
+  theme(legend.title = element_blank(), 
+        text = element_text(size = text_size))
+```
+
+Arctic values are wacky. <br> <br> <br> <br>
+
+### C, N content
+
+```{r}
+#| label: plot-c-v-n
+#| layout-ncol: 2
+#| layout-nrow: 1
+
+ggplot(lip.reca, aes(x = d13c.adj, y = d15n, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = expression(paste(delta^13*C, " (\u2030)")), 
+       y = expression(paste(delta^15*N, " (\u2030)"))) +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+
+ggplot(lip.reca, aes(x = c, y = n, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = "C (%)", 
+       y = "N (%)") +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+```
+
+<br><br>
+
+```{r}
+#| label: plot-delta-c-n
+#| layout-ncol: 2
+#| layout-nrow: 2
+
+ggplot(lip.reca, aes(x = wt, y = d13c, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = "Weight (g)", y = expression(paste(delta^13*C, " (\u2030)"))) +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+
+ggplot(lip.reca, aes(x = wt, y = d15n, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = "Weight (g)", y = expression(paste(delta^15*N, " (\u2030)"))) +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+
+ggplot(lip.reca, aes(x = wt, y = c, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = "Weight (g)", y = "C (%)") +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+
+ggplot(lip.reca, aes(x = wt, y = n, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = "Weight (g)", y = "N (%)") +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+```
+
+CN trends very different between Central-South and North-Arctic. Regional differences between South-Central and northern subareas <br><br><br><br>
+
+### C, N content latitudinal trends
+
+```{r}
+#| label: plot-latitudinal-trends
+#| layout-ncol: 2
+#| layout-nrow: 2
+
+ggplot(lip.reca, aes(x = lat, y = c)) + 
+  geom_point(size = 5) +
+  labs(x = expression(paste("Latitude ", "\u00B0", N)), 
+       y = "C (%)") +
+  geom_smooth(method = "gam", formula = y ~ s(x), se = FALSE) +
+  scale_x_continuous(limits = c(58, 64), breaks = seq(58, 64, 1)) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+
+ggplot(lip.reca, aes(x = lat, y = n)) + 
+  geom_point(size = 5) +
+  labs(x = expression(paste("Latitude ", "\u00B0", N)), 
+       y = "N (%)") +
+  geom_smooth(method = "gam", formula = y ~ s(x), se = FALSE) +
+  scale_x_continuous(limits = c(58, 64), breaks = seq(58, 64, 1)) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+
+ggplot(lip.reca, aes(x = lat, y = d13c.adj)) + 
+  geom_point(size = 5) +
+  labs(x = expression(paste("Latitude ", "\u00B0", N)), 
+       y = expression(paste(delta^13*C, " (\u2030)"))) +
+  geom_smooth(method = "gam", formula = y ~ s(x), se = FALSE) +
+  scale_x_continuous(limits = c(58, 64), breaks = seq(58, 64, 1)) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+
+ggplot(lip.reca, aes(x = lat, y = d15n)) + 
+  geom_point(size = 5) +
+  labs(x = expression(paste("Latitude ", "\u00B0", N)), 
+       y = expression(paste(delta*N^15, " (\u2030)"))) +
+  geom_smooth(method = "gam", formula = y ~ s(x), se = FALSE) +
+  scale_x_continuous(limits = c(58, 64), breaks = seq(58, 64, 1)) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+```
+
+<br> <br> <br> <br>
+
+### C:N ratio, moisture v %lipids
+
+```{r}
+#| label: plot-CN-ratio
+#| layout-ncol: 2
+#| layout-nrow: 1
+
+ggplot(lip.reca, aes(x = lipid, y = cn.ratio, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = expression(paste("lipids (%)")),
+       y = "C:N ratio") +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts + 
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+
+ggplot(lip.reca, aes(x = lipid, y = moist, color = factor(reg), shape = factor(reg))) + 
+  geom_point(size = 5) +
+  scale_colour_viridis_d(labels = reglabel) +
+  scale_shape_discrete(labels = reglabel) +
+  labs(x = expression(paste("lipids (%)")), 
+       y = "moisture (%)") +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  theme_opts +  
+  theme(legend.title = element_blank(), text = element_text(size = text_size))
+```
+
+<br> <br> [If units are the same, RECA lipids per sample wt 10x that of Copeman results.]{.underline}\
+C:N ratio is a strong predictor of lipid content ([Post 2007](http://dx.doi.org/10.1007/s00442-006-0630-x "Getting to the fat of the matter: models, methods and assumptions for dealing with lipids in stable isotope analyses"))\
+moisture content is negatively related to lipids content <br><br><br><br>
+
+### Lipids v C:N ratio regression summary
+
+```{r}
+#| label: table-Lipids-cn-regression
+
+lip.reca %>% group_by(reg) %>% group_map(~summary(lm(lipid ~ cn.ratio, data = .))) %>%
+  setNames(., levels(lip.reca$reg)) %>% purrr::map(~broom::tidy(.)) %>% 
+  purrr::map(~kableExtra::kbl(., format = "pipe", caption = "% lipid - C:N ratio"))
+
+```
+
+<br><br><br>
+
+```{r}
+#| label: cleanup
+
+rm(text_size)
+```
+
+### Notes
+
+-   Lipids content highest in North
+-   Lower δ^13^C in North because of higher lipids content. Lipids are depleted in ^13^C relative to proteins and carbohydrates
+-   Distinct subareas δ^13^C an δ^15^N signatures
+
+[McConnaughey and Roy 1979](https://doi.org/10.1007/bf00952434 "Food-web structure and the fractionation of carbon isotopes in the Bering Sea"){.uri}\
+δC (‰) = 1000 \[R~sample~ / R~std~ - 1\]\
+R = $^{13}$C:$^{12}$C\
+Total C content in a sample (grams or moles of C per unit mass)\
+C isotope (% of total C content)\
+All marine samples have -δC because R~sample~ depleted relative to R~std~\
+Replicate samples sd averaged 0.3‰\
+Lipids have lower R (depleted in ^13^C, more negative δ^13^C) than proteins and carbohydrates\
+Fat animals are isotopically lighter (heavy isotope depleted, lower R) than lean animals\
+To facilitate comparisons of animals of different fat content - calculate lipids in sample (L) and 'lipid-normalized' ([Post 2007](http://dx.doi.org/10.1007/s00442-006-0630-x "Getting to the fat of the matter: models, methods and assumptions for dealing with lipids in stable isotope analyses"))
+
+NRS δC = -19.9, δ'C = -20.3, C:N = 3.7
+
+[Peterson and Fry 1987](https://doi.org/10.1146/annurev.es.18.110187.001453 "Stable isotopes in ecosystem studies")\
+Diet is the primary determinant of animal isotopic compositions\
+Animals are similar in isotopic compositions to their diets in C, but average 3-5‰ heavier than dietary N
+
+"Increased energy storage (% lipids) at high latitudes could be expected to impair growth rates relative to southern areas. Another reason to expect lower growth rates in the Arctic is that capelin, as are many species of fish, are smaller at age at higher latitudes (Chambers and Leggett 1987; Chambers et al. 1989; Olsen et al. 2005)" ([Barton et al 2017](https://doi.org/10.1007/s00300-016-2041-8 "Latitudinal dependence of body condition, growth rate, and stable isotopes of juvenile capelin (Mallotus villosus) in the Bering and Chukchi Seas")). On the contrary, juvenile YFS have higher weight at length (growth rate) and higher % lipids in tissue in the NBS subarea relative to the Central and South subareas.
+
+Lower δ¹³C content in NBS suggests an associated with more offshore or pelagic carbon sources (prey), as marine phytoplankton generally have lower δ¹³C values compared to coastal or benthic (bottom-dwelling) primary producers like macroalgae and seagrasses. In contrast, higher δ¹³C values might indicate a diet based on carbon from benthic or coastal sources. It may reflect on their feeding ecology or habitat use.
